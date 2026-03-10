@@ -1,67 +1,47 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Tuple, Callable
-
-# Sampler import (sürüm uyumlu)
-try:
-    from qiskit.primitives import Sampler  # bazı sürümlerde var
-except Exception:
-    from qiskit.primitives import StatevectorSampler as Sampler  # Qiskit 1.x sık
-
-from qiskit_machine_learning.neural_networks import SamplerQNN
+import numpy as np
 from qiskit import QuantumCircuit
+from qiskit.primitives import StatevectorSampler
+
+from src.qcnn.encoding import EncodingConfig, build_encoding_circuit
+from src.qcnn.ansatz import build_parametric_qcnn_8q
 
 
-@dataclass
-class MulticlassQNNConfig:
-    measured_qubits: List[int] | None = None   # None -> [0,1,2,3]
-    n_classes: int = 9
+class QCNNModel:
 
+    def __init__(self, encoding_cfg: EncodingConfig):
 
-def _make_subset_interpret(measured_qubits: List[int]) -> Callable[[int], int]:
-    """
-    SamplerQNN'nin interpret fonksiyonu.
-    Sampler outcome integer'ını alır, sadece measured_qubits bitlerini çıkarıp
-    0..(2^k-1) aralığına map eder.
+        self.encoding_cfg = encoding_cfg
 
-    Not: Qiskit integer bit ordering (LSB) varsayımı kullanılır:
-    integer'daki bit q -> qubit q.
-    """
-    measured_qubits = list(measured_qubits)
+        self.qcnn_circuit, self.qcnn_params, self.final_qubits = build_parametric_qcnn_8q()
 
-    def interpret(x: int) -> int:
-        out = 0
-        for i, q in enumerate(measured_qubits):
-            out |= ((x >> q) & 1) << i
-        return out
+        self.sampler = StatevectorSampler()
 
-    return interpret
+    def build_circuit(self, x: np.ndarray):
 
+        encoding = build_encoding_circuit(x, self.encoding_cfg)
 
-def build_sampler_qnn(
-    base_circuit: QuantumCircuit,
-    input_params,
-    weight_params,
-    cfg: MulticlassQNNConfig,
-) -> Tuple[SamplerQNN, List[int]]:
-    """
-    Bu sürümde ölçüm register'ı eklemiyoruz.
-    Sampler 2^n_qubits dağılım döndürse bile interpret ile 2^k output'a indiriyoruz.
-    """
-    measured = cfg.measured_qubits or [0, 1, 2, 3]
-    k = len(measured)
-    output_shape = 2 ** k
+        full_circuit = encoding.compose(self.qcnn_circuit)
 
-    sampler = Sampler()
-    interpret = _make_subset_interpret(measured)
+        return full_circuit
 
-    qnn = SamplerQNN(
-        circuit=base_circuit,
-        input_params=list(input_params),
-        weight_params=list(weight_params),
-        sampler=sampler,
-        interpret=interpret,
-        output_shape=output_shape,  # <-- kritik: artık 16
-    )
-    return qnn, measured
+    def measure(self, circuit: QuantumCircuit):
+
+        meas_circuit = circuit.copy()
+
+        for q in self.final_qubits:
+            meas_circuit.measure_all()
+
+        return meas_circuit
+
+    def forward(self, x: np.ndarray):
+
+        circuit = self.build_circuit(x)
+
+        job = self.sampler.run([circuit])
+        result = job.result()
+
+        probs = result.quasi_dists[0]
+
+        return probs
