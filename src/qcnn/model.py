@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+from matplotlib.pylab import norm
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
@@ -112,6 +113,9 @@ class QCNNModel:
         Tek örnek için tam quantum devre:
             encoding(x) + bound_ansatz(theta)
         """
+        norm = np.linalg.norm(x)
+        if norm > 0:
+            x = x / norm
         encoding_circuit = build_encoding_circuit(x, self.encoding_cfg)
         ansatz_bound = self.bind_ansatz_parameters(theta)
 
