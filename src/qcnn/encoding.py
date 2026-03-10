@@ -110,9 +110,10 @@ def amplitude_encoding(
     n_qubits: int,
     add_barriers: bool = False,
 ) -> QuantumCircuit:
-    features = _validate_amplitude_features(features, n_qubits)
 
     qc = QuantumCircuit(n_qubits, name="AmplitudeEncoding")
+    features = np.asarray(features, dtype=np.float64).reshape(-1)
+    features = features / np.linalg.norm(features)
     init = Initialize(features)
     qc.append(init, qc.qubits)
 
