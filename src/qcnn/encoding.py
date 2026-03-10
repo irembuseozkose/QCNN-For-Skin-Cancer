@@ -110,10 +110,25 @@ def amplitude_encoding(
     n_qubits: int,
     add_barriers: bool = False,
 ) -> QuantumCircuit:
+    features = _validate_1d_features(features)
+    expected_dim = 2 ** n_qubits
+
+    if len(features) != expected_dim:
+        raise ValueError(
+            f"Amplitude encoding requires feature_dim == 2^n_qubits. "
+            f"Got feature_dim={len(features)}, expected_dim={expected_dim}"
+        )
+
+    features = np.asarray(features, dtype=np.float64).reshape(-1)
+
+    norm = np.linalg.norm(features)
+    if norm <= 1e-12:
+        raise ValueError("Cannot amplitude-encode a near-zero vector.")
+
+    # Qiskit'in katı norm kontrolü için tekrar normalize et
+    features = features / norm
 
     qc = QuantumCircuit(n_qubits, name="AmplitudeEncoding")
-    features = np.asarray(features, dtype=np.float64).reshape(-1)
-    features = features / np.linalg.norm(features)
     init = Initialize(features)
     qc.append(init, qc.qubits)
 
