@@ -1,11 +1,14 @@
 from pathlib import Path
+import sys
+from pathlib import Path
 
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from src.qcnn.preprocess import PreprocessConfig, run_preprocessing
 
 
 if __name__ == "__main__":
     cfg = PreprocessConfig(
-        data_dir=Path("data/raw/skin_cancer"),
+        data_dir=Path("data/raw/Train"),
         output_dir=Path("data/processed/features_q"),
 
         image_size=(16, 16),
