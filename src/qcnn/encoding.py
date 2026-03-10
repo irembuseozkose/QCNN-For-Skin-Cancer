@@ -119,13 +119,14 @@ def amplitude_encoding(
             f"Got feature_dim={len(features)}, expected_dim={expected_dim}"
         )
 
+    # Güvenli tip
     features = np.asarray(features, dtype=np.float64).reshape(-1)
 
+    # Sayısal hata varsa tekrar normalize et
     norm = np.linalg.norm(features)
     if norm <= 1e-12:
         raise ValueError("Cannot amplitude-encode a near-zero vector.")
 
-    # Qiskit'in katı norm kontrolü için tekrar normalize et
     features = features / norm
 
     qc = QuantumCircuit(n_qubits, name="AmplitudeEncoding")
