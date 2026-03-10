@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-from matplotlib.pylab import norm
 import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.circuit import ParameterVector
 from qiskit.quantum_info import Statevector
 
 from src.qcnn.encoding import EncodingConfig, build_encoding_circuit
@@ -26,13 +24,6 @@ class QCNNModel:
         -> encoding
         -> parametrik QCNN ansatz
         -> final active qubits ölçümü
-
-    Bu sınıf:
-    - tam parametrik devreyi kurar
-    - parametreleri tek vektörde toplar
-    - parametre bağlamayı sağlar
-    - ölçüm devresi üretir
-    - statevector tabanlı olasılık hesaplayabilir
     """
 
     def __init__(
@@ -61,9 +52,6 @@ class QCNNModel:
         )
 
     def _build_parameter_slices(self) -> dict[str, slice]:
-        """
-        Parametreleri tek vektörde hangi aralığa düşecek şekilde map eder.
-        """
         slices: dict[str, slice] = {}
         start = 0
 
@@ -75,9 +63,6 @@ class QCNNModel:
         return slices
 
     def split_parameter_vector(self, theta: Sequence[float]) -> dict[str, np.ndarray]:
-        """
-        Tek boyutlu parametre vektörünü katmanlara ayırır.
-        """
         theta = np.asarray(theta, dtype=np.float64).reshape(-1)
 
         if len(theta) != self.n_trainable_params:
@@ -91,9 +76,6 @@ class QCNNModel:
         }
 
     def bind_ansatz_parameters(self, theta: Sequence[float]) -> QuantumCircuit:
-        """
-        QCNN ansatz devresine sayısal parametreleri bağlar.
-        """
         theta_parts = self.split_parameter_vector(theta)
 
         bind_map = {}
@@ -112,10 +94,21 @@ class QCNNModel:
         """
         Tek örnek için tam quantum devre:
             encoding(x) + bound_ansatz(theta)
+
+        Not:
+        Amplitude encoding kullanılıyorsa, Qiskit'in Initialize katı norm kontrolü
+        yüzünden burada tekrar güvenli normalize yapılır.
         """
-        norm = np.linalg.norm(x)
-        if norm > 0:
+        x = np.asarray(x, dtype=np.float64).reshape(-1)
+
+        if self.encoding_cfg.encoding_mode == "amplitude":
+            norm = np.linalg.norm(x)
+            if norm <= 1e-12:
+                raise ValueError(
+                    "Cannot build amplitude circuit from a near-zero vector."
+                )
             x = x / norm
+
         encoding_circuit = build_encoding_circuit(x, self.encoding_cfg)
         ansatz_bound = self.bind_ansatz_parameters(theta)
 
@@ -127,10 +120,6 @@ class QCNNModel:
         x: np.ndarray,
         theta: Sequence[float],
     ) -> QuantumCircuit:
-        """
-        Yalnızca final active qubits'i ölçen devreyi üretir.
-        Klasik register boyutu = aktif qubit sayısı
-        """
         circuit = self.build_circuit(x, theta)
 
         measured = QuantumCircuit(circuit.num_qubits, len(self.final_active_qubits))
@@ -146,16 +135,6 @@ class QCNNModel:
         x: np.ndarray,
         theta: Sequence[float],
     ) -> np.ndarray:
-        """
-        Statevector kullanarak final active qubits için olasılık vektörü döndürür.
-        Bu yöntem özellikle debug için çok kullanışlıdır.
-
-        Çıktı boyutu:
-            2^(len(final_active_qubits))
-
-        Örn final_active_qubits = [3,7] ise çıktı:
-            [P(00), P(01), P(10), P(11)]
-        """
         circuit = self.build_circuit(x, theta)
         state = Statevector.from_instruction(circuit)
 
@@ -175,11 +154,6 @@ class QCNNModel:
         x: np.ndarray,
         theta: Sequence[float],
     ) -> int:
-        """
-        Final aktif qubitler üzerinden en yüksek olasılıklı bitstring indeksini döndürür.
-        Bu doğrudan sınıf etiketi olmak zorunda değil;
-        daha sonra multiclass mapping stratejisine göre kullanılabilir.
-        """
         probs = self.predict_probabilities_statevector(x, theta)
         return int(np.argmax(probs))
 
