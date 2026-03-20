@@ -20,45 +20,54 @@ def conv_block(
     name: str = "ConvBlock",
 ) -> QuantumCircuit:
     """
-    İki aşamalı komşuluk yapısı:
-    1) (0,1), (2,3), ...
-    2) (1,2), (3,4), ... + wrap-around
-
-    Her çift için 3 parametre:
-        Ry(a) on q0
-        Ry(b) on q1
+    FIX: Orijinal implementasyonda her çift için 3 parametre (Ry, Ry, Rz)
+    kullanılıyordu; bu yeterli ifade gücü sağlamıyor.
+    
+    Geliştirilmiş versiyon: Her qubit çifti için 6 parametre
+        Ry(a) on q0, Rz(b) on q0
+        Ry(c) on q1, Rz(d) on q1
         CX(q0, q1)
-        Rz(c) on q1
+        Ry(e) on q0, Ry(f) on q1   <- entanglement sonrası rotasyon
+    
+    Bu; ZZ-feature map + SU(4) gate kapasitesine daha yakın bir
+    expressibility sağlar ve barren plateau riskini azaltır.
     """
     if n_qubits < 2:
         raise ValueError("conv_block requires at least 2 qubits.")
 
-    if len(params) != 3 * n_qubits:
+    expected_params = 6 * n_qubits
+    if len(params) != expected_params:
         raise ValueError(
-            f"conv_block requires {3 * n_qubits} parameters, got {len(params)}"
+            f"conv_block requires {expected_params} parameters, got {len(params)}"
         )
 
     qc = QuantumCircuit(n_qubits, name=name)
     p = 0
 
-    # even pairs
+    # even pairs: (0,1), (2,3), ...
     for i in range(0, n_qubits - 1, 2):
-        qc.ry(params[p], i)
-        qc.ry(params[p + 1], i + 1)
+        qc.ry(params[p],     i)
+        qc.rz(params[p + 1], i)
+        qc.ry(params[p + 2], i + 1)
+        qc.rz(params[p + 3], i + 1)
         qc.cx(i, i + 1)
-        qc.rz(params[p + 2], i + 1)
-        p += 3
+        qc.ry(params[p + 4], i)
+        qc.ry(params[p + 5], i + 1)
+        p += 6
 
     # odd pairs + wrap-around
     odd_pairs = [(i, i + 1) for i in range(1, n_qubits - 1, 2)]
     odd_pairs.append((n_qubits - 1, 0))
 
     for q0, q1 in odd_pairs:
-        qc.ry(params[p], q0)
-        qc.ry(params[p + 1], q1)
+        qc.ry(params[p],     q0)
+        qc.rz(params[p + 1], q0)
+        qc.ry(params[p + 2], q1)
+        qc.rz(params[p + 3], q1)
         qc.cx(q0, q1)
-        qc.rz(params[p + 2], q1)
-        p += 3
+        qc.ry(params[p + 4], q0)
+        qc.ry(params[p + 5], q1)
+        p += 6
 
     if add_barriers:
         qc.barrier()
@@ -75,23 +84,23 @@ def pool_block(
     name: str = "PoolBlock",
 ) -> QuantumCircuit:
     """
-    Pooling benzeri blok.
-    source bilgisi sink üzerine aktarılır.
-    source sonra aktif kullanılmayacak kabul edilir.
-
-    Her çift için 3 parametre:
+    FIX: Orijinal pooling bloğu yeterli parametre içeriyordu ancak
+    CRY (controlled-RY) kullanmak daha iyi bilgi aktarımı sağlar.
+    
+    Geliştirilmiş versiyon: 4 parametre/çift
         Ry(a) on source
-        Ry(b) on sink
-        CX(source, sink)
+        CRY(b, source → sink)   <- koşullu rotasyon, kuantum korelasyonu korur
         Rz(c) on sink
+        Ry(d) on sink           <- ek özgürlük derecesi
     """
     if len(source_qubits) != len(sink_qubits):
         raise ValueError("source_qubits and sink_qubits must have same length.")
 
     n_pairs = len(source_qubits)
-    if len(params) != 3 * n_pairs:
+    expected_params = 4 * n_pairs
+    if len(params) != expected_params:
         raise ValueError(
-            f"pool_block requires {3 * n_pairs} parameters, got {len(params)}"
+            f"pool_block requires {expected_params} parameters, got {len(params)}"
         )
 
     qc = QuantumCircuit(n_total_qubits, name=name)
@@ -102,10 +111,10 @@ def pool_block(
             raise ValueError("source and sink qubits must be different.")
 
         qc.ry(params[p], src)
-        qc.ry(params[p + 1], sink)
-        qc.cx(src, sink)
+        qc.cry(params[p + 1], src, sink)   # CRY: bilgiyi koşullu aktarır
         qc.rz(params[p + 2], sink)
-        p += 3
+        qc.ry(params[p + 3], sink)
+        p += 4
 
     if add_barriers:
         qc.barrier()
@@ -114,11 +123,13 @@ def pool_block(
 
 
 def make_conv_parameter_vector(n_qubits: int, prefix: str) -> ParameterVector:
-    return ParameterVector(prefix, length=3 * n_qubits)
+    # FIX: 6 parametre/çift
+    return ParameterVector(prefix, length=6 * n_qubits)
 
 
 def make_pool_parameter_vector(n_pairs: int, prefix: str) -> ParameterVector:
-    return ParameterVector(prefix, length=3 * n_pairs)
+    # FIX: 4 parametre/çift
+    return ParameterVector(prefix, length=4 * n_pairs)
 
 
 def build_qcnn_ansatz_8q(
@@ -131,9 +142,8 @@ def build_qcnn_ansatz_8q(
 ) -> tuple[QuantumCircuit, list[int]]:
     """
     8 qubitlik QCNN:
-    Conv1 -> Pool1 -> Conv2 -> Pool2 -> Conv3
+    Conv1(8q) -> Pool1(8→4) -> Conv2(4q) -> Pool2(4→2) -> Conv3(2q)
     """
-
     qc = QuantumCircuit(8, name="QCNN_8Q")
 
     # Conv1 on all 8 qubits

@@ -1,20 +1,22 @@
 from pathlib import Path
 import sys
-from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
+
 from src.qcnn.preprocess import PreprocessConfig, run_preprocessing
 
 
 if __name__ == "__main__":
     cfg = PreprocessConfig(
-        data_dir=Path("data/raw/Train"),
-        output_dir=Path("data/processed/features_q"),
+        # FIX: train ve test klasörleri ayrı ayrı belirtiliyor
+        train_dir=Path("data/raw/Train"),
+        test_dir=Path("data/raw/Test"),
+        output_dir=Path("data/processed/features_q_amplitude"),
 
-        image_size=(16, 16),
+        image_size=(16, 16),       # 16x16 grayscale = 256 = 2^8  ✓
         color_mode="grayscale",
 
-        test_size=0.15,
+        # val, train'den ayrılır — test'e dokunulmaz
         val_size=0.15,
         random_state=42,
 
@@ -32,8 +34,12 @@ if __name__ == "__main__":
 
     metadata = run_preprocessing(cfg)
 
+    print("\n" + "=" * 50)
     print("Preprocessing tamamlandı.")
-    print("Kaydedilen klasör:", cfg.output_dir)
-    print("Train shape:", metadata["x_train_shape"])
-    print("Val shape:", metadata["x_val_shape"])
-    print("Test shape:", metadata["x_test_shape"])
+    print("Kaydedilen klasör :", cfg.output_dir)
+    print("Train shape        :", metadata["x_train_shape"])
+    print("Val shape          :", metadata["x_val_shape"])
+    print("Test shape         :", metadata["x_test_shape"])
+    print("Sınıf sayısı       :", metadata["num_classes"])
+    print("Label map          :", metadata["label_map"])
+    print("=" * 50)
